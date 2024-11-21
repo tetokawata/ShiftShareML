@@ -5,6 +5,7 @@ format:
       fig-format: retina
       section-numbering: 1.1.1.
       bibliography: "CleanRef.bib"
+      bibliographystyle: "apa"
 execute: 
   eval: true
   echo: false
@@ -16,11 +17,19 @@ execute:
 
 - How to explain biased growth?
 
-    - Mesurement [@esteban1972reinterpretation]
+    - Mesurement (Shift-Share) [@dunn1960statistical; @esteban1972reinterpretation]
     
-    - Estimation [@chernozhukov2018double; @chernozhukov2022locally]
+    - Estimation [@van2011targeted; @chernozhukov2018double; @chernozhukov2022locally]
     
         - Influence function [@hines2022demystifying; @ichimura2022influence]
+        
+        - BLP [@semenova2021debiased]
+        
+        - Stability [@kang2007demystifying]
+        
+        - Sequential Decomposition [@opacic2023disparity]
+        
+        - (Not yet) @kallus2023treatment
 
 ## SetUp
 
@@ -31,6 +40,7 @@ library(recipes)
 
 Data = nanoparquet::read_parquet("Data/Clean.parquet") |> 
   select(WageLower,
+         WageUpper,
          YearMW,
          Industry,
          Occcupation,
@@ -40,47 +50,20 @@ Data = nanoparquet::read_parquet("Data/Clean.parquet") |>
          Prefecture) |> 
   na.omit() |> 
   mutate(
-    MiddleIndstury = Industry |> str_sub(-3,-2) |> as.numeric()
-  ) |> 
-  mutate(
-    LargeIndustry = case_when(
-      MiddleIndstury <= 2 ~ "Aggli & Fish",
-      MiddleIndstury >= 3 & MiddleIndstury <= 4 ~ "Aggli & Fish",
-      MiddleIndstury == 5 ~ "Mining",
-      MiddleIndstury >= 6 & MiddleIndstury <= 8 ~ "Mining",
-      MiddleIndstury >= 9 & MiddleIndstury <= 32 ~ "Manufacturing",
-      MiddleIndstury >= 33 & MiddleIndstury <= 36 ~ "Infla",
-      MiddleIndstury >= 37 & MiddleIndstury <= 41 ~ "IT",
-      MiddleIndstury >= 42 & MiddleIndstury <= 49 ~ "Trasport",
-      MiddleIndstury >= 50 & MiddleIndstury <= 61 ~ "Retail",
-      MiddleIndstury >= 62 & MiddleIndstury <= 67 ~ "Finance",
-      MiddleIndstury >= 68 & MiddleIndstury <= 70 ~ "Real",
-      MiddleIndstury >= 71 & MiddleIndstury <= 74 ~ "R&D",
-      MiddleIndstury >= 75 & MiddleIndstury <= 77 ~ "Hotel",
-      MiddleIndstury >= 78 & MiddleIndstury <= 80 ~ "Life",
-      MiddleIndstury >= 81 & MiddleIndstury <= 82 ~ "Education",
-      MiddleIndstury >= 83 & MiddleIndstury <= 85 ~ "Medical",
-      MiddleIndstury >= 86 & MiddleIndstury <= 87 ~ "PublicComunicaiton",
-      MiddleIndstury >= 88 & MiddleIndstury <= 96 ~ "OtherService",
-      MiddleIndstury >= 97 & MiddleIndstury <= 98 ~ "Public",
-      .default = "Others"
-    )
-  ) |> 
-  mutate(
     EmbedSizeFirm = mean(SizeFirm),
     EmbedSizeBranch = mean(SizeBranch),
     .by = c(Industry,Occcupation,Prefecture)
   )
 
 Group = sample(
-  1:2,
+  1:3,
   nrow(Data),
   replace = TRUE
 )
 
 X = Data |> 
   recipe(
-    ~ EmbedSizeFirm + EmbedSizeBranch + SizeBranch + SizeFirm + MinimumWage,
+    ~ EmbedSizeFirm + EmbedSizeBranch + SizeBranch + SizeFirm,
     data = _
   ) |> 
   step_dummy(
@@ -99,21 +82,24 @@ X = Data |>
 
 X_Long = Data |> 
   recipe(
-    ~ EmbedSizeFirm + EmbedSizeBranch + SizeBranch + SizeFirm + MinimumWage,
+    ~ Industry + Occcupation + Prefecture + SizeBranch + SizeFirm,
     data = _
+  ) |> 
+  step_mutate(
+    Industry = Industry |> factor(),
+    Occcupation = Occcupation |> factor(),
+    Prefecture = Prefecture |> factor()
+  ) |> 
+  step_other(
+    all_nominal_predictors(),
+    threshold = 0.001
   ) |> 
   step_dummy(
     all_nominal_predictors()
   ) |> 
-  step_interact(
-    ~ all_predictors():all_predictors()
-  ) |> 
   step_poly(
     SizeBranch,
     SizeFirm,
-    EmbedSizeBranch,
-    EmbedSizeFirm,
-    MinimumWage,
     degree = 2
   ) |> 
   step_zv(
@@ -127,18 +113,13 @@ X_Long = Data |>
     new_data = NULL
   )
 
-
 Z = Data |> 
   recipe(
-    ~ LargeIndustry,
+    ~ Prefecture,
     data = _
   ) |> 
   step_mutate(
-    LargeIndustry = factor(LargeIndustry)
-  ) |> 
-  step_other(
-    all_nominal_predictors(),
-    threshold = 0.01
+    Prefecture = factor(Prefecture)
   ) |> 
   step_dummy(
     all_nominal_predictors()
@@ -153,10 +134,16 @@ Z = Data |>
 
 
 A = case_when(
-  Data$WageLower <= quantile(Data$WageLower,probs = 0.9) ~ 0,
-  Data$WageLower > quantile(Data$WageLower,probs = 0.9) ~ 1)
+  Data$WageLower <= quantile(Data$WageLower,probs = 0.95) ~ 0,
+  Data$WageLower > quantile(Data$WageLower,probs = 0.95) ~ 1)
 
 D = if_else(Data$YearMW == 2019,1,0)
+
+mean(A)
+
+mean(D)
+
+quantile(Data$WageLower,probs = 0.95)
 ```
 
 # Estimand
@@ -262,85 +249,153 @@ $$-A\int [f(1,X) - f(0,X)]\frac{f(a|X)}{f(a)^2}ZdZ$$
 
 ```{r Counterfactal}
 #| echo: true
-HatD_X_LASSO = gamlr::gamlr(
+HatD_X_LASSO <- gamlr::gamlr(
   y = D[Group == 1],
-  x = X_Long[Group == 1,]) |> 
-  predict(X_Long) |> 
+  x = X_Long[Group == 1, ]
+) |>
+  predict(X_Long) |>
   as.numeric()
 
-HatA_X_LASSO = gamlr::gamlr(
+HatA_X_LASSO <- gamlr::gamlr(
   y = A[Group == 1],
-  x = X_Long[Group == 1,]) |> 
-  predict(X_Long) |> 
+  x = X_Long[Group == 1, ]
+) |>
+  predict(X_Long) |>
   as.numeric()
 
-HatD_X_RF = ranger::ranger(
-  y = D[Group == 1],
-  x = X[Group == 1,]) |> 
-  predict(X) |> 
-  magrittr::extract2("predictions")
-
-HatA_X_RF = ranger::ranger(
-  y = A[Group == 1],
-  x = X[Group == 1,])  |> 
-  predict(X) |> 
-  magrittr::extract2("predictions")
-
-HatD_X = lm(
-  D ~ HatD_X_LASSO + HatD_X_RF, 
-  subset = Group == 2) |> 
+HatA_X_Boost <- xgboost::xgb.train(
+  params = list(eta = 0.1),
+  data = xgboost::xgb.DMatrix(
+    X[Group == 1, ] |> data.matrix(),
+    label = A[Group == 1]
+  ),
+  watchlist = list(
+    train = xgboost::xgb.DMatrix(
+      X[Group == 1, ] |> data.matrix(),
+      label = A[Group == 1]
+    ),
+    eval = xgboost::xgb.DMatrix(
+      X[Group != 1, ] |> data.matrix(),
+      label = A[Group != 1]
+    )
+  ),
+  nrounds = 5000,
+  early_stopping_rounds = 100,
+  verbose = 0
+) |>
   predict(
-    tibble(
-      HatD_X_LASSO,
-      HatD_X_RF
+    xgboost::xgb.DMatrix(
+      X |> data.matrix(),
+      label = A
     )
   )
 
-HatA_X = lm(
-  A ~ HatA_X_LASSO + HatA_X_RF, 
-  subset = Group == 2) |> 
+HatD_X_RF <- ranger::ranger(
+  y = D[Group == 1],
+  x = X[Group == 1, ]
+) |>
+  predict(X) |>
+  magrittr::extract2("predictions")
+
+HatA_X_RF <- ranger::ranger(
+  y = A[Group == 1],
+  x = X[Group == 1, ]
+) |>
+  predict(X) |>
+  magrittr::extract2("predictions")
+
+HatD_X_Boost <- xgboost::xgb.train(
+  params = list(eta = 0.1),
+  data = xgboost::xgb.DMatrix(
+    X[Group == 1, ] |> data.matrix(),
+    label = D[Group == 1]
+  ),
+  watchlist = list(
+    train = xgboost::xgb.DMatrix(
+      X[Group == 1, ] |> data.matrix(),
+      label = D[Group == 1]
+    ),
+    eval = xgboost::xgb.DMatrix(
+      X[Group != 1, ] |> data.matrix(),
+      label = D[Group != 1]
+    )
+  ),
+  nrounds = 5000,
+  early_stopping_rounds = 100,
+  verbose = 0
+) |>
+  predict(
+    xgboost::xgb.DMatrix(
+      X |> data.matrix(),
+      label = D
+    )
+  )
+
+HatA_X <- lm(
+  A ~ HatA_X_LASSO + HatA_X_RF + HatA_X_Boost,
+  subset = Group == 2
+) |>
   predict(
     tibble(
       HatA_X_LASSO,
-      HatA_X_RF
+      HatA_X_RF,
+      HatA_X_Boost
     )
   )
 
-Plugin = A*(2*HatD_X - 1)/mean(A)
+HatD_X <- lm(
+  D ~ HatD_X_LASSO + HatD_X_RF + HatD_X_Boost,
+  subset = Group == 2
+) |>
+  predict(
+    tibble(
+      HatD_X_LASSO,
+      HatD_X_RF,
+      HatD_X_Boost
+    )
+  )
 
-Adjust = (2*HatA_X*(D - HatD_X))/mean(A)
 
-Score_C = Plugin + Adjust
+mean((D - HatD_X)[Group == 2]^2) / var(D)
 
-Score_G = 2*D - 1
+mean((A - HatA_X)[Group == 2]^2) / var(A)
 
-Score_g = (A*(2*D - 1))/mean(A)
+
+Plugin <- A * (2 * HatD_X - 1) / mean(A)
+
+Adjust <- (2 * HatA_X * (D - HatD_X)) / mean(A)
+
+Score_C <- Plugin + Adjust
+
+Score_G <- 2 * D - 1
+
+Score_g <- (A * (2 * D - 1)) / mean(A)
 
 estimatr::lm_robust(
   (Score_g - Score_C) ~ 1,
-      subset = Group == 2
-  ) |> 
-  generics::tidy() |> 
-  mutate(Component = "Unexplained") |> 
+  subset = Group == 2
+) |>
+  generics::tidy() |>
+  mutate(Component = "Unexplained") |>
   bind_rows(
     estimatr::lm_robust(
       (Score_C - Score_G) ~ 1,
       subset = Group == 2
-      ) |> 
-      generics::tidy() |> 
+    ) |>
+      generics::tidy() |>
       mutate(
         Component = "Explained"
       )
-  ) |> 
+  ) |>
   bind_rows(
     estimatr::lm_robust(
       (Score_g - Score_G) ~ 1
-      ) |> 
-      generics::tidy() |> 
+    ) |>
+      generics::tidy() |>
       mutate(
         Component = "Total"
       )
-  ) |> 
+  ) |>
   ggplot(
     aes(
       x = estimate,
@@ -361,53 +416,13 @@ estimatr::lm_robust(
 
 ```{r BLP4Unexaplined}
 #| echo: true
-HatD_X_LASSO = gamlr::gamlr(
-  y = D[Group == 1],
-  x = X_Long[Group == 1,]) |> 
-  predict(X_Long) |> 
-  as.numeric()
-
-HatA_X_LASSO = gamlr::gamlr(
-  y = A[Group == 1],
-  x = X_Long[Group == 1,]) |> 
-  predict(X_Long) |> 
-  as.numeric()
-
-HatD_X_RF = ranger::ranger(
-  y = D[Group == 1],
-  x = X[Group == 1,]) |> 
-  predict(X) |> 
-  magrittr::extract2("predictions")
-
-HatA_X_RF = ranger::ranger(
-  y = A[Group == 1],
-  x = X[Group == 1,])  |> 
-  predict(X) |> 
-  magrittr::extract2("predictions")
-
-HatA_X = lm(
-  A ~ HatA_X_RF + HatA_X_LASSO, 
-  subset = Group == 2) |> 
-  predict(
-    tibble(
-      HatA_X_RF,
-      HatA_X_LASSO
-    )
-  )
-
-HatD_X = lm(
-  D ~ HatD_X_RF + HatD_X_LASSO, 
-  subset = Group == 2) |> 
-  predict(
-    tibble(
-      HatA_X_RF,
-      HatA_X_LASSO
-    )
-  )
 
 Score = (2*(A - HatA_X)*(D - HatD_X))/mean(A)
 
-estimatr::lm_robust(Score ~ 0 + .,Z) |> 
+estimatr::lm_robust(
+  Score ~ 0 + .,
+  Z,
+  subset = Group != 1) |> 
   generics::tidy() |> 
   mutate(
     Method = "OneStep"
@@ -426,3 +441,4 @@ estimatr::lm_robust(Score ~ 0 + .,Z) |>
     position = position_dodge(width = 0.5)
   )
 ```
+
