@@ -1,0 +1,428 @@
+---
+title: "Untitled"
+format: 
+    typst:
+      fig-format: retina
+      section-numbering: 1.1.1.
+      bibliography: "CleanRef.bib"
+execute: 
+  eval: true
+  echo: false
+  warning: false
+  message: false
+---
+
+# ReadMe
+
+- How to explain biased growth?
+
+    - Mesurement [@esteban1972reinterpretation]
+    
+    - Estimation [@chernozhukov2018double; @chernozhukov2022locally]
+    
+        - Influence function [@hines2022demystifying; @ichimura2022influence]
+
+## SetUp
+
+```{r SetUp}
+set.seed(111)
+library(tidyverse)
+library(recipes)
+
+Data = nanoparquet::read_parquet("Data/Clean.parquet") |> 
+  select(WageLower,
+         YearMW,
+         Industry,
+         Occcupation,
+         SizeBranch,
+         SizeFirm,
+         MinimumWage,
+         Prefecture) |> 
+  na.omit() |> 
+  mutate(
+    MiddleIndstury = Industry |> str_sub(-3,-2) |> as.numeric()
+  ) |> 
+  mutate(
+    LargeIndustry = case_when(
+      MiddleIndstury <= 2 ~ "Aggli & Fish",
+      MiddleIndstury >= 3 & MiddleIndstury <= 4 ~ "Aggli & Fish",
+      MiddleIndstury == 5 ~ "Mining",
+      MiddleIndstury >= 6 & MiddleIndstury <= 8 ~ "Mining",
+      MiddleIndstury >= 9 & MiddleIndstury <= 32 ~ "Manufacturing",
+      MiddleIndstury >= 33 & MiddleIndstury <= 36 ~ "Infla",
+      MiddleIndstury >= 37 & MiddleIndstury <= 41 ~ "IT",
+      MiddleIndstury >= 42 & MiddleIndstury <= 49 ~ "Trasport",
+      MiddleIndstury >= 50 & MiddleIndstury <= 61 ~ "Retail",
+      MiddleIndstury >= 62 & MiddleIndstury <= 67 ~ "Finance",
+      MiddleIndstury >= 68 & MiddleIndstury <= 70 ~ "Real",
+      MiddleIndstury >= 71 & MiddleIndstury <= 74 ~ "R&D",
+      MiddleIndstury >= 75 & MiddleIndstury <= 77 ~ "Hotel",
+      MiddleIndstury >= 78 & MiddleIndstury <= 80 ~ "Life",
+      MiddleIndstury >= 81 & MiddleIndstury <= 82 ~ "Education",
+      MiddleIndstury >= 83 & MiddleIndstury <= 85 ~ "Medical",
+      MiddleIndstury >= 86 & MiddleIndstury <= 87 ~ "PublicComunicaiton",
+      MiddleIndstury >= 88 & MiddleIndstury <= 96 ~ "OtherService",
+      MiddleIndstury >= 97 & MiddleIndstury <= 98 ~ "Public",
+      .default = "Others"
+    )
+  ) |> 
+  mutate(
+    EmbedSizeFirm = mean(SizeFirm),
+    EmbedSizeBranch = mean(SizeBranch),
+    .by = c(Industry,Occcupation,Prefecture)
+  )
+
+Group = sample(
+  1:2,
+  nrow(Data),
+  replace = TRUE
+)
+
+X = Data |> 
+  recipe(
+    ~ EmbedSizeFirm + EmbedSizeBranch + SizeBranch + SizeFirm + MinimumWage,
+    data = _
+  ) |> 
+  step_dummy(
+    all_nominal_predictors()
+  ) |> 
+  step_zv(
+    all_predictors()
+  ) |> 
+  step_normalize(
+    all_predictors()
+  ) |> 
+  prep() |> 
+  bake(
+    new_data = NULL
+  )
+
+X_Long = Data |> 
+  recipe(
+    ~ EmbedSizeFirm + EmbedSizeBranch + SizeBranch + SizeFirm + MinimumWage,
+    data = _
+  ) |> 
+  step_dummy(
+    all_nominal_predictors()
+  ) |> 
+  step_interact(
+    ~ all_predictors():all_predictors()
+  ) |> 
+  step_poly(
+    SizeBranch,
+    SizeFirm,
+    EmbedSizeBranch,
+    EmbedSizeFirm,
+    MinimumWage,
+    degree = 2
+  ) |> 
+  step_zv(
+    all_predictors()
+  ) |> 
+  step_normalize(
+    all_predictors()
+  ) |> 
+  prep() |> 
+  bake(
+    new_data = NULL
+  )
+
+
+Z = Data |> 
+  recipe(
+    ~ LargeIndustry,
+    data = _
+  ) |> 
+  step_mutate(
+    LargeIndustry = factor(LargeIndustry)
+  ) |> 
+  step_other(
+    all_nominal_predictors(),
+    threshold = 0.01
+  ) |> 
+  step_dummy(
+    all_nominal_predictors()
+  ) |> 
+  step_zv(
+    all_predictors()
+  ) |> 
+  prep() |> 
+  bake(
+    new_data = NULL
+  )
+
+
+A = case_when(
+  Data$WageLower <= quantile(Data$WageLower,probs = 0.9) ~ 0,
+  Data$WageLower > quantile(Data$WageLower,probs = 0.9) ~ 1)
+
+D = if_else(Data$YearMW == 2019,1,0)
+```
+
+# Estimand
+
+## Biased growth
+
+- Normalized biased growth can be rewritten as Shift-Share form.
+
+$$\frac{f(1,a) - f(0,a)}{f(a)} - [f(1) - f(0)]$$
+
+$$=\int[f(1,X|a) - f(0,X|a)]dX - \int[f(1,X) - f(0,X)]dX$$
+
+$$=\int\underbrace{g_a(X)}_{f(1|X,a) - f(0,|X,a)}f(X|a)dX - \int\underbrace{G(X)}_{f(1|X) - f(0|X)}f(X)dX$$
+
+## Decomposition
+
+$$\int g_a(X)f(X|a)dX - \int G(X)f(X)dX$$
+
+$$=\underbrace{\int G(X)[f(X|a)-f(X)]dX}_{Explained\ by\ X}$$
+
+$$+\underbrace{\int[g_a(X) - G(X)]f(X|a)dX}_{Unexplained}$$
+
+## Sequential Decomposition
+
+$$\int g_a(X)f(X|a)dX - \int G(X)f(X)dX$$
+
+$$=\underbrace{\int [G(X)f(X|a)-G(Z_1)f(Z_1|a)]dX}_{Explained\ by\ X}$$
+
+$$+\underbrace{\int [G(Z_1)f(Z_1|a)-G(Z_2)f(Z_2|a)]dX}_{Explained\ by\ X}$$
+
+$$+..+$$
+
+$$+\underbrace{\int[g_a(X) - G(X)]f(X|a)dX}_{Unexplained}$$
+
+where $Z_1\subset Z_2\subset ..\subset X$.
+
+# Estimation
+
+## Counterfactural quantity
+
+Moment condition is 
+
+$$\Psi=\int G(Z)f(Z|a)dZ - \theta^C(Z)$$
+
+$$=\int [2f(1|Z) - 1]f(Z|a)dZ - \theta^C(Z)$$
+
+$$=\int [2\frac{f(1,Z)}{f(Z)} - 1]f(Z,a)dZ - f(a)\theta^C(Z)$$
+
+Influence function is
+
+$$IF[\Psi]=-\Psi + [2f(1|Z)-1]A -A\theta^C(Z)$$
+
+$$+2[D - f(1|Z)]f(a|Z)$$
+
+
+Estimator is
+
+$$\frac{1}{N}\sum \frac{A[2f(1|Z)-1] + 2[D - f(1|Z)]f(a|Z)}{E[A]}$$
+
+## BLP on Unexplained
+
+- Moment condition is
+
+$$\Psi=\int [g_a(X) - G(X)]f(X|a,Z)Zf(Z,a)dX-\int Z^2\beta f(Z,a)dZ$$
+
+$$=\int [g_a(X) - G(X)]f(X,a)ZdX-\int Z^2\beta f(Z,a)dZ$$
+
+$$=\int [f(1,a,X) - f(0,a,X) - \frac{f(1,X) - f(0,X)}{f(X)}f(X,a)]ZdX-\int Z^2\beta f(Z,a)dZ$$
+
+- Influence function is
+
+$$IF[\Psi]=-\Psi + 2[A - f(a|X)][D-f(1|X)]Z-A Z^2\beta $$
+
+- Estimator
+
+$$0=\frac{1}{N}\sum (2[A - f(a|X)][D-f(1|X)]Z-A Z^2\beta)$$
+
+## BLP on Explained
+
+- ???
+
+- Explained can be rewritten as
+
+$$\int G(X)[f(X|a) - f(X)]dX$$
+
+- Moment condition is
+
+$$\Psi=-\int \beta Z^2[f(1|X) - f(0|X)]dZ$$
+
+$$+\int [f(1|X) - f(0|X)][f(X|a) - f(X)]dXZ$$
+
+Influence function is
+
+$$IF[\Psi]=-\Psi-\beta Z^2+ \int [2D-1]\frac{f(a|X) - f(a)}{f(a)}ZdZ$$
+
+$$+[f(1,X) - f(0,X)]\frac{1}{f(a)}\frac{Af(X) - f(a,X)}{f(X)^2}Z$$
+
+$$-A\int [f(1,X) - f(0,X)]\frac{f(a|X)}{f(a)^2}ZdZ$$
+
+# Example
+
+## Counterfactual
+
+```{r Counterfactal}
+#| echo: true
+HatD_X_LASSO = gamlr::gamlr(
+  y = D[Group == 1],
+  x = X_Long[Group == 1,]) |> 
+  predict(X_Long) |> 
+  as.numeric()
+
+HatA_X_LASSO = gamlr::gamlr(
+  y = A[Group == 1],
+  x = X_Long[Group == 1,]) |> 
+  predict(X_Long) |> 
+  as.numeric()
+
+HatD_X_RF = ranger::ranger(
+  y = D[Group == 1],
+  x = X[Group == 1,]) |> 
+  predict(X) |> 
+  magrittr::extract2("predictions")
+
+HatA_X_RF = ranger::ranger(
+  y = A[Group == 1],
+  x = X[Group == 1,])  |> 
+  predict(X) |> 
+  magrittr::extract2("predictions")
+
+HatD_X = lm(
+  D ~ HatD_X_LASSO + HatD_X_RF, 
+  subset = Group == 2) |> 
+  predict(
+    tibble(
+      HatD_X_LASSO,
+      HatD_X_RF
+    )
+  )
+
+HatA_X = lm(
+  A ~ HatA_X_LASSO + HatA_X_RF, 
+  subset = Group == 2) |> 
+  predict(
+    tibble(
+      HatA_X_LASSO,
+      HatA_X_RF
+    )
+  )
+
+Plugin = A*(2*HatD_X - 1)/mean(A)
+
+Adjust = (2*HatA_X*(D - HatD_X))/mean(A)
+
+Score_C = Plugin + Adjust
+
+Score_G = 2*D - 1
+
+Score_g = (A*(2*D - 1))/mean(A)
+
+estimatr::lm_robust(
+  (Score_g - Score_C) ~ 1,
+      subset = Group == 2
+  ) |> 
+  generics::tidy() |> 
+  mutate(Component = "Unexplained") |> 
+  bind_rows(
+    estimatr::lm_robust(
+      (Score_C - Score_G) ~ 1,
+      subset = Group == 2
+      ) |> 
+      generics::tidy() |> 
+      mutate(
+        Component = "Explained"
+      )
+  ) |> 
+  bind_rows(
+    estimatr::lm_robust(
+      (Score_g - Score_G) ~ 1
+      ) |> 
+      generics::tidy() |> 
+      mutate(
+        Component = "Total"
+      )
+  ) |> 
+  ggplot(
+    aes(
+      x = estimate,
+      xmin = conf.low,
+      xmax = conf.high,
+      y = Component
+    )
+  ) +
+  theme_bw() +
+  geom_pointrange() +
+  geom_vline(
+    xintercept = 0
+  )
+```
+
+
+## BLP on Unexplained
+
+```{r BLP4Unexaplined}
+#| echo: true
+HatD_X_LASSO = gamlr::gamlr(
+  y = D[Group == 1],
+  x = X_Long[Group == 1,]) |> 
+  predict(X_Long) |> 
+  as.numeric()
+
+HatA_X_LASSO = gamlr::gamlr(
+  y = A[Group == 1],
+  x = X_Long[Group == 1,]) |> 
+  predict(X_Long) |> 
+  as.numeric()
+
+HatD_X_RF = ranger::ranger(
+  y = D[Group == 1],
+  x = X[Group == 1,]) |> 
+  predict(X) |> 
+  magrittr::extract2("predictions")
+
+HatA_X_RF = ranger::ranger(
+  y = A[Group == 1],
+  x = X[Group == 1,])  |> 
+  predict(X) |> 
+  magrittr::extract2("predictions")
+
+HatA_X = lm(
+  A ~ HatA_X_RF + HatA_X_LASSO, 
+  subset = Group == 2) |> 
+  predict(
+    tibble(
+      HatA_X_RF,
+      HatA_X_LASSO
+    )
+  )
+
+HatD_X = lm(
+  D ~ HatD_X_RF + HatD_X_LASSO, 
+  subset = Group == 2) |> 
+  predict(
+    tibble(
+      HatA_X_RF,
+      HatA_X_LASSO
+    )
+  )
+
+Score = (2*(A - HatA_X)*(D - HatD_X))/mean(A)
+
+estimatr::lm_robust(Score ~ 0 + .,Z) |> 
+  generics::tidy() |> 
+  mutate(
+    Method = "OneStep"
+  )|> 
+  ggplot(
+    aes(
+      y = term,
+      x = estimate,
+      xmin = conf.low,
+      xmax = conf.high,
+      color = Method
+    )
+  ) +
+  theme_bw() +
+  geom_pointrange(
+    position = position_dodge(width = 0.5)
+  )
+```
