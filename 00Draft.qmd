@@ -1,0 +1,613 @@
+---
+title: "Machine learning inference on shift-share decomposition"
+author: "Keisuke Kawata"
+format: 
+  typst:
+    section-numbering: 1.1.
+    bibliographystyle: apa
+    bibliography: "CleanRef.bib"
+    fig-format: retina
+execute:
+  warning: false
+  message: false
+  echo: false
+  eval: true
+---
+
+# Introduction
+
+- How to explain biased growth?
+
+    - Mesurement (Shift-Share) [@dunn1960statistical; @esteban1972reinterpretation]
+    
+    - Estimation [@van2011targeted; @chernozhukov2018double; @chernozhukov2022locally]
+    
+        - Influence function [@hines2022demystifying; @ichimura2022influence]
+        
+        - BLP [@semenova2021debiased]
+        
+        - Stability (@kang2007demystifying 's critique)
+        
+        - Sequential Decomposition [@opacic2023disparity]
+        
+        - (Not yet) @kallus2023treatment
+        
+        - Sensitivity @lu2023flexible
+
+In our empirical analysis, we used apartment transactions from January 2022 to December 2023 in Tokyo, Japan.
+
+# Settings
+
+## Growth gap
+
+Let $T$ denote a binary indicator for a period, and $G$ an indictor for group membership.
+In our empirical analaysis, $T = 1$ for respondents in 2004, $T = 0$ for respondents in 1992, $G$ is wage bins.
+
+A group specific change is defined as 
+
+$$\tau_g=f(T=1|G=g) - f(T=0|G=g).$$
+In the empirical analysis, $\tau_g$ is then the employment changes by wage bin $G=g$
+
+A national change is
+
+$$\tau_g=f(T=1) - f(T=0).$$
+
+The gap between group-specific and national change is 
+
+$$\tau_g - \tau.$$
+
+Let $X_1,X_2,...X_J$ denote $J$ ordered sets of explanation characteristics for the gap.
+The goal of the shift-share decomposition is to decompose the gap into components: components explained by characteristics $X_j$ and an unexplained component.
+In our empirical analaysis, $X_1$ include demographic characteristics (age and gender), and $X_2$ is education status (highshool or bachelor).
+
+## Decomposition
+
+Let $Z_j$ denote a cumulative set of explanation characteristics such that $Z_0=\phi$ and $Z_j=\{X_1,X_2,...X_j\}$.
+The law of iterated expectations yields
+
+$$\tau_g - \tau$$
+
+$$=\int\underbrace{\tau_g(Z_J)}_{=f(T=1|G=g,Z_J) - f(T=0|G=g,Z_J)}\times f(Z_K|G=g)dZ_J$$ 
+
+$$- \int\underbrace{\tau(Z_J)}_{=f(T=1|Z_J) - f(T=0|Z_J)}\times f(Z_J)dZ_J,$$
+where $\tau_g(Z_J)$ and $\tau(Z_J)$ are the total and group-specific growth in characteristics $Z_J$.
+
+The gap between total and a group-specific growth can be decomposed as
+
+$$\tau_g-\tau$$
+
+$$=\underbrace{\int [\tau_g(Z_J) - \tau(Z_J)]\times f(Z_J|G=g)dZ_J}_{Shift}$$ 
+
+$$+ \underbrace{\int\tau(Z_J)\times [f(Z_J|G=g)-f(Z_J)]dZ_J}_{Share}$$
+The decomposition result can be rewritten as 
+
+$$\tau_g-\tau$$
+
+$$=\underbrace{\tau_g - \int \tau(Z_J)\times f(Z_J|G=g)dZ_J}_{Shift}$$ 
+$$+ \underbrace{\int\tau(Z_J)\times f(Z_J|G=g)dZ_J-\tau}_{Share}.$$
+Then, the decomposition analysis require to estiamte a counterfactual quantity $\theta=\int\tau(Z_J)\times f(Z_J|G=g)dX$, in addition to factual quantities $\tau$ and $\tau_g$.
+
+### Sequential decomposition
+
+@opacic2023disparity proposes a sequential decomposition referred as the generalized KOB/Duncun decomposition.
+
+$$\tau_g-\tau$$
+
+$$=\underbrace{\tau_g - \int \tau(Z_J)\times f(Z_J|G=g)dX}_{Unexplained}$$ 
+
+$$+ \underbrace{\int\tau(Z_J)\times f(Z_J|G=g)dZ_J-\int\tau(Z_{J-1})\times f(Z_{J-1}|G=g)dZ_{J-1}}_{Explained\ by\ X_J}$$
+
+$$+..$$
+
+$$+ \underbrace{\int\tau(Z_2)\times f(Z_2|G=g)dZ_2-\int\tau(Z_1)\times f(Z_1|G=g)dZ_1}_{Explained\ by\ X_2}$$
+
+$$+ \underbrace{\int\tau(Z_1)\times f(Z_1|G=g)dZ_1-\tau}_{Explained\ by\ X_1}.$$
+
+In the empirical application, $Z_1$ is demographic characteristics, and $Z_2$ is education.
+The gap of employment growth is then decomposed into explained term by demographic characteristics, explained term by education, and unexplained term.
+
+## Estimator
+
+I propose the estimators of $\tau$, $\tau_g$, and $\theta(Z)$ as
+
+$$\tilde\tau=\frac{\sum (2T_i - 1)}{N},$$
+
+$$\tilde\tau_g=\frac{\sum [G_i\times (2T_i - 1)]/N}{\sum \mathbb{I}(G_i=g)/N},$$
+
+and
+
+$$\tilde\theta(Z)=\frac{\sum_i [\mathbb{I}[G_i=g]\times\tilde\tau(Z_i) + 2\times[T_i - \tilde f(T=1|Z_i)]\times\tilde f(G=g|Z_i)]/N}{\sum_i \mathbb{I}[G_i=g]/N},$$
+where $\tilde\tau(X)=2\times\tilde f(T=1|X) - 1$. 
+$\tilde f(T=1|X)$ and $\tilde f(G=g|X)$ are estimated regression functions of $\mathbb{I}(T=1)$ and $\mathbb{I}(G=g)$ with cross-fitting, respectively.
+
+The estimator is motivated by the efficient influence function of $\theta$ [@ichimura2022influence; @hines2022demystifying]^[See Appendix A for a derivation.].
+
+An important property of our estimator is the Neyman orthogonality property [@chernozhukov2018double; @chernozhukov2022locally]^[See Appendix B for a proof.].
+The property allows us to use off-the-shelf machine learning tools for the estimation of nuisance functions, and which is also statistically robust to slower convergence rate than parametric nuisance function estimations.
+Under the Neyman orthogonality property, the asymptotic normality of our estimatr requires to the rate requirment on the nuisance functions as $o(N^{1/4})$ [@chernozhukov2018double].
+The rate requirment is much slower than the parametric rate of convergence $o(N^{1/2})$^[See Appendix C for a proof.].
+
+Note that the estimator doese not require the overlap assumption on $G$, which implies to allow $f(G=g|X)=0$ and $f(G=g|X)=1$.
+The estimator is then stable than the average treatment effects because the overlap assumption is not reqruired [@kang2007demystifying; @bang2005doubly; @tan2010bounded].
+
+# Example
+
+The empirical example use the Current Population Survey for 1992 and 2004 ("CPSSW9204"), which can be found in R package “AER” [@kleiber2008applied].
+
+## Group Specific Growth
+
+$G=\{[1.5,8.17], (8.17,11.1], (11.1,14.4], (14.4,19.2], (19.2,61.1]\}$
+
+```{r}
+library(tidyverse)
+data("CPSSW9204", package = "AER")
+
+Q = CPSSW9204$earnings |> 
+  quantile(probs = seq(0,1,0.2))
+
+G = CPSSW9204$earnings |> 
+  cut(Q,include.lowest = TRUE)
+
+Data = CPSSW9204 |> 
+  mutate(
+    T = case_when(
+      year == 2004 ~ 1,
+      .default = 0
+    ),
+    G
+    )
+
+Total = 2*mean(Data$T) - 1
+
+estimatr::lm_robust(
+  Score ~ 0 + G,
+  Data |> 
+    mutate(
+      Score = 2*T - 1
+    )
+  ) |> 
+  generics::tidy() |> 
+  mutate(
+    term = term |> 
+      str_sub(2) |> 
+      factor(levels = G |> levels())
+  ) |> 
+  ggplot(
+    aes(
+      y = term,
+      x = estimate,
+      xmin = conf.low,
+      xmax = conf.high
+    )
+  ) +
+  theme_minimal() +
+  geom_pointrange() +
+  geom_vline(
+    xintercept = Total
+  ) +
+  ylab("G")
+```
+
+Heterogeneity in the employment change is large.
+The growth rate of high-wage jobs is greater than that of low-wage jobs.
+Employment in the bottom 40 $\%$ are declining.
+
+## Background
+
+```{r}
+estimatr::lm_robust(
+  scale(age) ~ 0 + G, 
+  Data) |> 
+  generics::tidy() |> 
+  mutate(
+    Outcome = "Age",
+    Period = 1
+  ) |> 
+  bind_rows(
+    estimatr::lm_robust(
+      if_else(gender == "female",1,0) ~ 0 + G, 
+      Data) |> 
+      generics::tidy() |> 
+      mutate(
+        Outcome = "Women",
+    Period = 1
+        )
+  ) |> 
+  bind_rows(
+    estimatr::lm_robust(
+      if_else(degree == "bachelor",1,0) ~ 0 + G, 
+      Data) |> 
+      generics::tidy() |> 
+      mutate(
+        Outcome = "Bachelor",
+    Period = 1
+        )
+  ) |> 
+  mutate(
+    term = term |> 
+      str_sub(2) |> 
+      factor(levels = G |> levels())
+  ) |> 
+  ggplot(
+    aes(
+      y = term,
+      x = estimate,
+      xmin = conf.low,
+      xmax = conf.high
+    )
+  ) +
+  geom_pointrange() +
+  facet_wrap(
+    ~ Outcome,
+    ncol = 2
+    ) +
+  theme_minimal() +
+  ylab("G")
+```
+
+## Background
+
+```{r}
+estimatr::lm_robust(
+  scale(age) ~ T, 
+  Data) |> 
+  generics::tidy() |> 
+  mutate(
+    Outcome = "Age"
+  ) |> 
+  bind_rows(
+    estimatr::lm_robust(
+      if_else(gender == "female",1,0) ~ T, 
+      Data) |> 
+      generics::tidy() |> 
+      mutate(
+        Outcome = "Women"
+        )
+  ) |> 
+  bind_rows(
+    estimatr::lm_robust(
+      if_else(degree == "bachelor",1,0) ~ T, 
+      Data) |> 
+      generics::tidy() |> 
+      mutate(
+        Outcome = "Bachelor"
+        )
+  ) |> 
+  filter(
+    term == "T"
+  ) |> 
+  mutate(
+    term = term |> 
+      str_sub(2) |> 
+      factor(levels = G |> levels())
+  ) |> 
+  ggplot(
+    aes(
+      y = Outcome,
+      x = estimate,
+      xmin = conf.low,
+      xmax = conf.high
+    )
+  ) +
+  geom_pointrange() +
+  theme_minimal() +
+  ylab("X") +
+  geom_vline(
+    xintercept = 0
+  )
+```
+
+From 1992 to 2004, the number of respondents with bachelor degrees clearly increased.
+The average age increased and the share of women decreased
+
+## Decomposition
+
+All nuisance functions are estiamted using a super learner composed of OLS and LASSO [@taddy2017one] with B-spline, random forest [@wright2015ranger], LightGBM [@ke2017lightgbm], Oblique Random Forest [@liu2022ODRF], and BART [@sparapani2021nonparametric].
+
+
+```{r}
+library(tidyverse)
+library(recipes)
+data("CPSSW9204", package = "AER")
+
+Q = CPSSW9204$earnings |> 
+  quantile(probs = seq(0,1,0.2))
+
+G = CPSSW9204$earnings |> 
+  cut(Q,include.lowest = TRUE)
+
+G1 = if_else(
+  CPSSW9204$earnings >= quantile(CPSSW9204$earnings,0.8),
+  1,
+  0
+)
+
+T = if_else(
+  CPSSW9204$year == "2004",
+  1,
+  0
+)
+
+Z1 = CPSSW9204 |> 
+  recipe(
+    ~ age + gender,
+    data = _
+  ) |> 
+  step_bs(
+    all_numeric_predictors(),
+    degree = 3
+  ) |> 
+  step_interact(
+    ~ all_predictors():all_predictors()
+  ) |> 
+  step_dummy(
+    all_nominal_predictors()
+  ) |> 
+  prep() |> 
+  bake(
+    new_data = NULL
+  )
+
+
+Z2 = CPSSW9204 |> 
+  recipe(
+    ~ age + gender + degree,
+    data = _
+  ) |> 
+  step_bs(
+    all_numeric_predictors(),
+    degree = 3
+  ) |> 
+  step_interact(
+    ~ all_predictors():all_predictors()
+  ) |> 
+  step_dummy(
+    all_nominal_predictors()
+  ) |> 
+  prep() |> 
+  bake(
+    new_data = NULL
+  )
+
+HatT_Z1 = glm(
+  T ~ ., 
+  Z1, 
+  family = "binomial") |> 
+  predict(
+    Z1, 
+    "response")
+
+HatT_Z2 = glm(
+  T ~ ., 
+  Z2, 
+  family = "binomial") |> 
+  predict(
+    Z2, 
+    "response")
+
+HatG1_Z1 = glm(
+  G1 ~ ., 
+  Z1,
+  family = "binomial") |> 
+  predict(
+    Z1,
+    "response")
+
+HatG1_Z2 = glm(
+  G1 ~ .,
+  Z2,
+  family = "binomial") |> 
+  predict(
+    Z2,
+    "response")
+
+Score_Z1 = (1/mean(G1))*(
+  G1*(2*HatT_Z1 - 1) +
+    2*(T - HatT_Z1)*HatG1_Z1
+)
+
+Score_Z2 = (1/mean(G1))*(
+  G1*(2*HatT_Z2 - 1) +
+    2*(T - HatT_Z2)*HatG1_Z2
+)
+
+Score_Explained_Z1 = Score_Z1 - (2*T - 1)
+
+Score_Explained_Z2 = Score_Z2 - Score_Z1
+
+Score_Unexplained = ((G1*(2*T - 1))/mean(G1)) - Score_Z2
+
+Score_Total = ((G1*(2*T - 1))/mean(G1)) - (2*T - 1)
+
+estimatr::lm_robust(Score_Unexplained ~ 1) |> 
+  generics::tidy() |> 
+  mutate(
+    Component = "Unexplained"
+  ) |> 
+  bind_rows(
+    estimatr::lm_robust(Score_Explained_Z2 ~ 1) |> 
+      generics::tidy() |> 
+      mutate(
+        Component = "Explained by Education"
+      )
+  ) |> 
+  bind_rows(
+    estimatr::lm_robust(Score_Explained_Z1 ~ 1) |> 
+      generics::tidy() |> 
+      mutate(
+        Component = "Explained by Age and Gender"
+      )
+  ) |> 
+  ggplot(
+    aes(
+      y = Component,
+      x = estimate,
+      xmin = conf.low,
+      xmax = conf.high
+    )
+  ) +
+  geom_pointrange() +
+  theme_minimal()
+
+```
+
+
+# Conclution
+
+TBA.
+
+\newpage
+
+# Appendix A. Efficient Influence function {.unnumbered}
+
+## Factual outcome {.unnumbered}
+
+The moment condition of the share component is 
+
+$$\Psi=\tau-f(T=1) + f(T=0),$$
+
+and
+
+$$\Psi=f(G=g)\times\tau_g-f(T=1,G=g) + f(T=0,G=g)$$
+
+The influence function are
+
+$$IF[\Psi]=\tau - (2T - 1)$$
+
+and
+
+$$IF[\Psi]=G\times\tau_g-G\times(2T - 1)$$
+
+The estimators are then
+
+$$\tau=\frac{\sum (2T_i - 1)}{N}$$
+
+and
+
+$$\tau_g=\frac{\sum [G_i\times (2T_i - 1)]/N}{\sum \mathbb{I}(G_i=g)/N}.$$
+
+## Counterfactual outcome {.unnumbered}
+
+The moment condition of the counterfactual quantity $\theta$ is defined as
+
+$$\Psi=\theta-\int\tau(X)f(X|G=1)dX.$$
+
+I now derive the efficient influence function of $\Psi$ in the nonparametric model through a perturbation approach introduced by @hines2022demystifying.
+First, rewrite the moment condition as a function of a data distribution $f:\Phi(f)=\Psi$.
+Then, consider a parametric submodel $f_t$ characterized by the following density function: $$f_t(G,T,X) = (1 − t)f(G,T,X) + t\delta_{\tilde{G},\tilde{T},\tilde{X}}(G,T,X),$$
+where $f_t(G,T,X)$ is the true density function of $(G,T,X)$, and $\delta_{\tilde{G},\tilde{T},\tilde{X}}(G,T,X)$ is the Dirac delta function with respect to a data point $(\tilde{G},\tilde{T},\tilde{X})$.
+
+The influence function at $(\tilde{G},\tilde{T},\tilde{X})$ can be calculated as the derivative of $\Phi(f_t)$ with respect to $t$, i.e.,
+
+$$\frac{d\Phi(f_t)}{dt}|_{t=0}=\delta_\tilde{G}(G)\times\theta - \delta_{\tilde{G},\tilde{X}}(G,X)\times\tau(X)$$
+
+$$-2\times [\delta_{\tilde{T},\tilde{X}}(T,X) - \delta_{\tilde{X}}(X)f(T|X)]\times f(G=g|X).$$
+
+The efficient influence function at $(G,T,X)$ is
+
+$$\mathbb{I}(G=g)\times\theta - \mathbb{I}(G=g)\times\tau(X)$$
+
+$$-2\times [\mathbb{I}(T=1) - f(T|X)]\times f(G=g|X).$$
+
+The estimator is then
+
+$$\frac{1}{\sum_i\mathbb{I}(G_i=g)/N}\frac{\sum_i[\mathbb{I}(G_i=g)\tau(X_i)+2\times [\mathbb{I}(T_i=1) - f(T=1|X_i)]\times f(G=g|X_i)]}{N}$$
+
+\newpage
+
+# Appendix B. Neyman orthogonality property {.unnumbered}
+
+The Gateaux derivative in the direction $f(T=1|X_i) - f_0(T=1|X_i)$ is
+
+$$\frac{1}{\sum_i\mathbb{I}(G_i=g)/N}\frac{\sum_i2[\mathbb{I}(G_i=g)- f(G=g|X_i)]}{N}[f(T=1|X_i) - f_0(T=1|X_i)]$$
+
+$$=\frac{1}{\sum_i\mathbb{I}(G_i=g)/N}\frac{\sum_i2[\mathbb{I}(G_i=g)-f_0(G=g|X_i)]\times [f(T=1|X_i) - f_0(T=1|X_i)]}{N}$$
+
+$$\times \frac{1}{\sum_i\mathbb{I}(G_i=g)/N}\frac{\sum_i2[f_0(G=g|X_i)- f(G=g|X_i)]\times [f(T=1|X_i) - f_0(T=1|X_i)]}{N}$$
+
+The first equation in the right-hand side converge to 0 with rate $o_P(n^{-1/2})$ if $f(T=1|X_i) - f_0(T=1|X_i)=o_P(1)$ because $\mathbb{I}(G_i=g)-f_0(G=g|X_i)=o_P(n^{-1/2})$.
+The second equation converge to 0 if $[f_0(G=g|X_i)- f(G=g|X_i)]\times [f(T=1|X_i) - f_0(T=1|X_i)]=o_P(n^{-1/2})$.
+A sufficient condition of the third requirement is $[f(T=1|X) - \mu_T(X)] = o_P(n^{-1/4})$ and $[f(G=g|X) - \mu_{G=g}(X)]=o_P(n^{-1/4})$ .
+
+Similary, the Gateaux derivative in the direction $(f(G=g|X_i) - f_0(G=g|X_i))$ is 
+
+$$\frac{1}{\sum_i\mathbb{I}(G_i=g)/N}\frac{\sum_i2\times [\mathbb{I}(T_i=1) - f(T=1|X_i)]}{N}[f(G=g|X_i) - f_0(G=g|X_i)].$$
+
+$$=\frac{1}{\sum_i\mathbb{I}(G_i=g)/N}\frac{\sum_i2\times [\mathbb{I}(T_i=1) - f_0(T=1|X_i)]}{N}[f(G=g|X_i) - f_0(G=g|X_i)].$$
+
+$$+\frac{1}{\sum_i\mathbb{I}(G_i=g)/N}\frac{\sum_i2\times [f_0(T=1|X_i) - f(T=1|X_i)]}{N}[f(G=g|X_i) - f_0(G=g|X_i)].$$
+The left-hand side is converge to 0 with $o_P(-1/2)$ if $f(G=1|X_i) - f_0(G=1|X_i)=o_P(1)$ and $[f_0(G=g|X_i)- f(G=g|X_i)]\times [f(T=1|X_i) - f_0(T=1|X_i)]=o_P(n^{-1/2})$.
+
+\newpage
+
+# Appendix C. Rate of convergence {.unnumbered}
+
+Let $\tilde\theta^{Oracle}$ denote an oracle estimator of $\theta$ defined as
+
+$$\sum_i\frac{\mathbb{I}[G_i=g]}{N}\times\tilde\theta^{Oracle}$$
+
+$$=\sum_i\frac{\mathbb{I}[G_i=g]\times[2f(T=1|X_i) - 1]}{N}$$
+
+$$+\sum \frac{2[\mathbb{I}[T_i=1] - f(T=1|X_i)]\times f(G=g|X_i)}{N}.$$
+
+We should show $\tilde\theta - \tilde\theta^{Oracle}=o(n^{1/2})$ because the oracle estimator is the root-$N$ consistent and asymptotic noral estimator of $\theta$.
+
+## Convergence on an oracle estimator {.unnumbered}
+
+The double robust estimator $\theta$ is
+
+$$\sum\frac{\mathbb{I}[G=g]}{N}\times\theta$$
+
+$$=\sum\frac{\mathbb{I}[G=g]\times[2\mu_T(X) - 1]}{N}$$
+
+$$+\sum \frac{2[\mathbb{I}[T=1] - \mu_T(X)]\times \mu_{G=g}(X)}{N},$$
+where $\mu_T(X)$ and $\mu_{G=g}(X)$ are regression functions of $T$ and $\mathbb{I}(G=g)$, respectively.
+
+
+Oracle estimates $\theta^{Oracle}$ is
+
+$$\sum\frac{\mathbb{I}[G=g]}{N}\times\theta^{Oracle}$$ 
+
+$$=\sum\frac{\mathbb{I}[G=g]\times[2f(T=1|X) - 1]}{N}$$
+
+$$+\sum 2\frac{[\mathbb{I}[T=1] - f(T=1|X)]\times f(G=g|X)}{N}$$
+
+The gap between actual and oracle estimators is
+
+$$\sum\frac{\mathbb{I}[G=g]}{N}\times [\theta-\theta^{Oracle}]$$ 
+
+$$=\sum 2\frac{\mathbb{I}[G=g]\times[\mu_T(X) - f(T=1|X)]}{N}$$
+
+$$+\sum2 \frac{\mathbb{I}[T=1]\times [\mu_{G=g}(X) - f(G=g|X)]}{N},$$
+
+$$-\sum 2\frac{\mu_T(X)\times \mu_{G=g}(X) - f(T=1|X)\times f(G=g|X)}{N}$$
+
+Then
+
+$$\sum\frac{\mathbb{I}[G=g]}{N}\times [\theta-\theta^{Oracle}]$$
+
+$$=\sum 2\frac{[\mathbb{I}[G=g]-f(G=g|X)]\times[\mu_T(X) - f(T=1|X)]}{N}$$
+
+$$+\sum2 \frac{[\mathbb{I}[T=1] - \mu_T(X)]\times [\mu_{G=g}(X) - f(G=g|X)]}{N},$$
+
+Then
+
+$$\sum\frac{\mathbb{I}[G=g]}{N}\times [\theta-\theta^{Oracle}]$$
+
+$$=\sum 2\frac{[\mathbb{I}[G=g]-f(G=g|X)]\times[\mu_T(X) - f(T=1|X)]}{N}$$
+
+$$+\sum2 \frac{[\mathbb{I}[T=1] - f(T=1|X)]\times [\mu_{G=g}(X) - f(G=g|X)]}{N},$$
+
+$$-\sum2 \frac{[f(T=1|X) - \mu_T(X)]\times [f(G=g|X) - \mu_{G=g}(X)]}{N},$$
+
+The left-hand side converges to zero at a rate $o(n^{-1/2})$ if
+
+- $\mu_{G=g}(X) - f(G=g|X)=o_P(1)$
+
+- $\mu_{T}(X) - f(T=1|X)=o_P(1)$
+
+- $[f(T=1|X) - \mu_T(X)]\times [f(G=g|X) - \mu_{G=g}(X)]=o_P(n^{-1/2})$
+
+A sufficient condition of the third requirement is $[f(T=1|X) - \mu_T(X)] = o(n^{-1/4})$ and $[f(G=g|X) - \mu_{G=g}(X)]=o(n^{-1/4})$ .
+
+\newpage
